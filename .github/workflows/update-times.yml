@@ -1,0 +1,43 @@
+# Fetches GCM's prayer begin times and saves them to data/prayer-times.json.
+# Runs just after midnight UK time (both winter GMT and summer BST), plus a midday backup.
+name: Update prayer times
+
+on:
+  schedule:
+    - cron: "7 23 * * *"   # 00:07 UK in summer (BST)
+    - cron: "7 0 * * *"    # 00:07 UK in winter (GMT)
+    - cron: "37 11 * * *"  # midday backup
+  workflow_dispatch:        # lets you press "Run workflow" by hand on GitHub
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-times
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch times from centralmosque.co.uk
+        run: python scripts/fetch_times.py
+
+      - name: Save the new times (only if something changed)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/prayer-times.json
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Update prayer times"
+            git push
+          fi

@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GCM Prayer Times</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #F3F1EC;
+    --green: #2B5E4E;
+    --gold-text: #7A6233;
+    --gold-a: #E6CF8C;
+    --gold-b: #F7EDCF;
+    --gold-border: #C9A85A;
+    --ink: #1F2A26;
+    --muted: #6B746F;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--cream);
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    overflow: hidden;
+  }
+
+  /* The design is drawn at 1080 x 1920 and scaled to fit any screen. */
+  #stage {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 1080px; height: 1920px;
+    transform-origin: center center;
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+    padding: 80px 72px 64px;
+    display: flex; flex-direction: column;
+  }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; }
+  .brand-name {
+    color: var(--green); font-size: 27px; font-weight: 600;
+    letter-spacing: 0.2em; text-transform: uppercase; white-space: nowrap;
+  }
+  .brand-sub { margin-top: 10px; font-size: 38px; font-weight: 400; color: var(--ink); }
+  .dates { text-align: right; }
+  .greg { white-space: nowrap; font-size: 31px; font-weight: 500; color: var(--ink); }
+  .hijri { white-space: nowrap; margin-top: 10px; font-size: 30px; font-weight: 500; color: var(--gold-text); min-height: 38px; }
+
+  .clock {
+    margin-top: 70px;
+    text-align: center;
+    color: var(--green);
+    font-size: 300px; font-weight: 600; line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pill-row { display: flex; justify-content: center; margin-top: 40px; }
+  .pill {
+    background: #fff; border-radius: 999px;
+    padding: 22px 52px;
+    font-size: 42px; font-weight: 400;
+    box-shadow: 0 6px 24px rgba(43, 94, 78, 0.08);
+    font-variant-numeric: tabular-nums;
+  }
+  .pill b { color: var(--green); font-weight: 600; }
+
+  .rows {
+    flex: 1;
+    margin-top: 64px;
+    display: flex; flex-direction: column; gap: 26px;
+    min-height: 0;
+  }
+  .card {
+    flex: 1; min-height: 0;
+    background: #fff;
+    border: 3px solid transparent;
+    border-radius: 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px 0 52px;
+    box-shadow: 0 6px 24px rgba(43, 94, 78, 0.06);
+  }
+  .card.now {
+    background: linear-gradient(135deg, var(--gold-a), var(--gold-b));
+    border-color: var(--gold-border);
+    box-shadow: 0 10px 34px rgba(201, 168, 90, 0.35);
+  }
+  .label { display: flex; align-items: center; gap: 18px; }
+  .name { font-size: 40px; font-weight: 500; color: var(--green); }
+  .tag {
+    display: none;
+    background: var(--ink); color: var(--cream);
+    font-size: 20px; font-weight: 600; letter-spacing: 0.16em;
+    padding: 7px 14px; border-radius: 10px;
+  }
+  .card.now .tag { display: inline-block; }
+  .time {
+    margin-top: 2px;
+    font-size: 92px; font-weight: 600; line-height: 1.05;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .tile { width: 200px; height: auto; display: block; }
+
+  footer {
+    margin-top: 40px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 24px;
+  }
+  .sunrise { font-size: 36px; font-weight: 500; color: var(--ink); }
+  .sunrise span { color: var(--green); font-weight: 600; }
+  .updated { font-size: 20px; color: var(--muted); text-align: right; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <header>
+    <div>
+      <div class="brand-name">Glasgow Central Mosque</div>
+      <div class="brand-sub">Prayer begin times</div>
+    </div>
+    <div class="dates">
+      <div class="greg" id="greg">&nbsp;</div>
+      <div class="hijri" id="hijri"></div>
+    </div>
+  </header>
+
+  <div class="clock" id="clock">--:--</div>
+
+  <div class="pill-row"><div class="pill" id="next">Loading prayer times…</div></div>
+
+  <main class="rows" id="rows"></main>
+
+  <footer>
+    <div class="sunrise">Sunrise <span id="sunrise">--:--</span></div>
+    <div class="updated" id="updated"></div>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var TZ = "Europe/London";               // GCM's times are UK local time, whatever the screen's own clock zone is
+  var DATA_URL = "data/prayer-times.json";
+  var RELOAD_DATA_EVERY_MS = 30 * 60 * 1000;
+  var CACHE_KEY = "gcm-prayer-times-v1";
+  var PRAYERS = [
+    { key: "fajr", name: "Fajr" },
+    { key: "zuhr", name: "Zuhr" },
+    { key: "asr", name: "Asr" },
+    { key: "maghrib", name: "Maghrib" },
+    { key: "isha", name: "Isha" }
+  ];
+
+  var data = null;
+  var lastRenderKey = "";
+
+  /* ---------- Build the five cards once ---------- */
+  var rowsEl = document.getElementById("rows");
+  var cards = {};
+  PRAYERS.forEach(function (p) {
+    var card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML =
+      '<div><div class="label"><span class="name">' + p.name + '</span><span class="tag">NOW</span></div>' +
+      '<div class="time">--:--</div></div>' +
+      '<img class="tile" src="assets/' + p.key + '.png" alt="' + p.name + ' in Arabic calligraphy">';
+    rowsEl.appendChild(card);
+    cards[p.key] = { el: card, time: card.querySelector(".time") };
+  });
+
+  /* ---------- Scale the 1080x1920 design to the screen ---------- */
+  function fit() {
+    var s = Math.min(window.innerWidth / 1080, window.innerHeight / 1920);
+    document.getElementById("stage").style.setProperty("--scale", s);
+  }
+  window.addEventListener("resize", fit);
+  fit();
+
+  /* ---------- UK time helpers ---------- */
+  var partsFmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  });
+  var longDateFmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ, weekday: "long", day: "numeric", month: "long", year: "numeric"
+  });
+
+  function ukNow() {
+    var d = new Date();
+    var p = {};
+    partsFmt.formatToParts(d).forEach(function (x) { p[x.type] = x.value; });
+    var h = parseInt(p.hour, 10) % 24, m = parseInt(p.minute, 10), s = parseInt(p.second, 10);
+    return {
+      date: p.year + "-" + p.month + "-" + p.day,
+      hh: pad(h), mm: pad(m),
+      mins: h * 60 + m,
+      secs: h * 3600 + m * 60 + s,
+      longDate: longDateFmt.format(d).replace(",", "")
+    };
+  }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function toMins(t) { var a = t.split(":"); return parseInt(a[0], 10) * 60 + parseInt(a[1], 10); }
+  function addDays(iso, n) {
+    var d = new Date(iso + "T12:00:00Z");
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  function daysBetween(a, b) {
+    return Math.round((new Date(b + "T12:00:00Z") - new Date(a + "T12:00:00Z")) / 86400000);
+  }
+
+  /* ---------- Hijri date (as published by GCM) ---------- */
+  function hijriFor(today) {
+    var h = (data && data.hijri) || {};
+    if (h[today]) return h[today];
+    // If today's entry hasn't arrived yet, step forward from the latest known one,
+    // but only while it's safe (a Hijri month always has at least 29 days).
+    var known = Object.keys(h).filter(function (d) { return d < today; }).sort();
+    if (!known.length) return "";
+    var last = known[known.length - 1];
+    var gap = daysBetween(last, today);
+    var m = /^(\d{1,2})(\s.*)$/.exec(h[last]);
+    if (!m || gap > 3) return "";
+    var day = parseInt(m[1], 10) + gap;
+    return day <= 29 ? day + m[2] : "";
+  }
+
+  /* ---------- Countdown text ---------- */
+  function countdown(secsLeft) {
+    var mins = Math.ceil(secsLeft / 60);
+    if (mins <= 1) return "1 min";
+    var h = Math.floor(mins / 60), m = mins % 60;
+    if (h === 0) return m + " min";
+    return h + "h " + pad(m) + "m";
+  }
+
+  /* ---------- Draw everything (called every second) ---------- */
+  function render() {
+    var now = ukNow();
+    document.getElementById("clock").textContent = now.hh + ":" + now.mm;
+    document.getElementById("greg").textContent = now.longDate;
+
+    var days = (data && data.days) || {};
+    var today = days[now.date];
+    var tomorrow = days[addDays(now.date, 1)];
+
+    document.getElementById("hijri").textContent = hijriFor(now.date);
+
+    var key = now.date + "|" + now.mins + "|" + (data ? data.updated : "");
+    var pill = document.getElementById("next");
+
+    if (!today) {
+      PRAYERS.forEach(function (p) { cards[p.key].time.textContent = "--:--"; cards[p.key].el.classList.remove("now"); });
+      document.getElementById("sunrise").textContent = "--:--";
+      pill.textContent = data ? "Today's times are not available yet" : "Loading prayer times…";
+      lastRenderKey = key;
+      return;
+    }
+
+    if (key !== lastRenderKey) {
+      PRAYERS.forEach(function (p) { cards[p.key].time.textContent = today[p.key]; });
+      document.getElementById("sunrise").textContent = today.sunrise;
+
+      // Which prayer's time are we in?
+      var t = now.mins, current = null;
+      if (t < toMins(today.fajr)) current = "isha";             // before Fajr: Isha (from last night)
+      else if (t < toMins(today.sunrise)) current = "fajr";
+      else if (t < toMins(today.zuhr)) current = null;          // after sunrise, before Zuhr: nothing
+      else if (t < toMins(today.asr)) current = "zuhr";
+      else if (t < toMins(today.maghrib)) current = "asr";
+      else if (t < toMins(today.isha)) current = "maghrib";
+      else current = "isha";
+      PRAYERS.forEach(function (p) { cards[p.key].el.classList.toggle("now", p.key === current); });
+      lastRenderKey = key;
+    }
+
+    // Next prayer and countdown (updates every second, shows minutes)
+    var next = null, nextSecs = 0;
+    for (var i = 0; i < PRAYERS.length; i++) {
+      var s = toMins(today[PRAYERS[i].key]) * 60;
+      if (s > now.secs) { next = PRAYERS[i]; nextSecs = s; break; }
+    }
+    if (!next && tomorrow) { next = PRAYERS[0]; nextSecs = 86400 + toMins(tomorrow.fajr) * 60; }
+    if (next) {
+      pill.innerHTML = "Next: <b>" + next.name + "</b> in " + countdown(nextSecs - now.secs);
+    } else {
+      pill.textContent = "Next: Fajr tomorrow";
+    }
+  }
+
+  /* ---------- "Last updated" note ---------- */
+  var updFmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  });
+  function showUpdated() {
+    var el = document.getElementById("updated");
+    if (!data || !data.updated) { el.textContent = ""; return; }
+    el.textContent = "Times from centralmosque.co.uk · last updated " + updFmt.format(new Date(data.updated)).replace(",", "");
+  }
+
+  /* ---------- Load data; never throw away good data ---------- */
+  function looksValid(d) {
+    return d && typeof d === "object" && d.days && typeof d.days === "object" && Object.keys(d.days).length > 0;
+  }
+  function useData(d) {
+    data = d; lastRenderKey = ""; showUpdated(); render();
+  }
+  try {
+    var cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+    if (looksValid(cached)) useData(cached);
+  } catch (e) { /* storage unavailable: fine */ }
+
+  function load() {
+    fetch(DATA_URL + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        if (!looksValid(d)) throw new Error("bad data");
+        useData(d);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch (e) {}
+      })
+      .catch(function () { /* keep showing what we already have */ });
+  }
+  load();
+  setInterval(load, RELOAD_DATA_EVERY_MS);
+
+  render();
+  setInterval(render, 1000);
+})();
+</script>
+</body>
+</html>
