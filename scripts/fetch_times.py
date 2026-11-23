@@ -3,8 +3,12 @@
 
 The times come from the same public feed GCM's own website uses
 (the "Daily Prayer Time for Mosques" WordPress plugin):
-  https://centralmosque.co.uk/?rest_route=/dpt/v1/prayertime&filter=today  -> today, tomorrow, Hijri date
+  https://centralmosque.co.uk/?rest_route=/dpt/v1/prayertime&filter=today  -> today and tomorrow
   https://centralmosque.co.uk/?rest_route=/dpt/v1/prayertime&filter=year   -> every day of the current year
+  https://centralmosque.co.uk/  (homepage)                                  -> the Hijri date exactly as GCM shows it
+
+Note: the feed's own "hijri_date_convert" field is NOT used. It is one day ahead of
+the Hijri date GCM actually displays (GCM applies its own adjustment on the website).
 
 Safety rules:
   * If anything goes wrong, the existing JSON file is left exactly as it was.
@@ -13,6 +17,7 @@ Only the Python standard library is used, so nothing needs installing.
 """
 
 import datetime as dt
+import html
 import json
 import os
 import re
@@ -22,6 +27,7 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 BASE = "https://centralmosque.co.uk/?rest_route=/dpt/v1/prayertime&filter="
+HOME = "https://centralmosque.co.uk/"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "prayer-times.json")
 LONDON = ZoneInfo("Europe/London")
 HEADERS = {
@@ -38,19 +44,40 @@ def log(msg):
     print(msg, flush=True)
 
 
-def get_json(filter_name):
-    """Download one feed, retrying a few times on a network hiccup."""
+def get_text(url, accept):
+    """Download a page, retrying a few times on a network hiccup."""
     last_err = None
     for attempt in range(3):
         try:
-            req = urllib.request.Request(BASE + filter_name, headers=HEADERS)
+            req = urllib.request.Request(url, headers=dict(HEADERS, Accept=accept))
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                return resp.read().decode("utf-8")
         except Exception as err:  # noqa: BLE001 - we really do want to catch everything here
             last_err = err
-            log(f"  attempt {attempt + 1} for '{filter_name}' failed: {err}")
+            log(f"  attempt {attempt + 1} for {url} failed: {err}")
             time.sleep(5 * (attempt + 1))
-    raise RuntimeError(f"could not download '{filter_name}': {last_err}")
+    raise RuntimeError(f"could not download {url}: {last_err}")
+
+
+def get_json(filter_name):
+    return json.loads(get_text(BASE + filter_name, "application/json"))
+
+
+HOME_DATE_RE = re.compile(r'class="general-date"[^>]*>\s*<p>\s*([^<]+?)\s*</p>', re.S)
+HOME_HIJRI_RE = re.compile(r"class=['\"]scHijriDate['\"][^>]*>\s*([^<]+?)\s*<")
+
+
+def get_homepage_hijri():
+    """Return (iso_date, hijri_text) exactly as shown on GCM's homepage."""
+    page = get_text(HOME, "text/html")
+    d, h = HOME_DATE_RE.search(page), HOME_HIJRI_RE.search(page)
+    if not d or not h:
+        raise RuntimeError("could not find the dates on GCM's homepage (layout may have changed)")
+    greg = dt.datetime.strptime(" ".join(d.group(1).split()), "%d %B %Y").date()
+    hijri = html.unescape(" ".join(h.group(1).split()))
+    if not re.match(r"^\d{1,2}\s", hijri) or len(hijri) > 80:
+        raise RuntimeError(f"unexpected Hijri text on homepage: {hijri!r}")
+    return greg.isoformat(), hijri
 
 
 def hhmm(value):
@@ -128,17 +155,23 @@ def main():
     new_days = {}
     errors = []
 
-    # 1) Today's feed: today + tomorrow + the Hijri date GCM shows.
+    # 1) Today's feed: today + tomorrow.
     try:
-        today_feed = rows(get_json("today"))
-        for r in today_feed:
+        for r in rows(get_json("today")):
             for candidate in (r, r.get("tomorrow")):
                 d, v = convert_day(candidate)
                 if d:
                     new_days[d] = v
-            h = str(r.get("hijri_date_convert") or "").strip()
-            if h and re.search(r"\d", h) and len(h) < 80 and r.get("d_date") == today.isoformat():
-                hijri[today.isoformat()] = h
+    except Exception as err:  # noqa: BLE001
+        errors.append(str(err))
+
+    # 1b) The Hijri date, read from GCM's homepage so it matches what they display.
+    try:
+        greg, h = get_homepage_hijri()
+        if abs((dt.date.fromisoformat(greg) - today).days) <= 1:
+            hijri[greg] = h
+        else:
+            errors.append(f"homepage showed an old date ({greg}); Hijri not updated")
     except Exception as err:  # noqa: BLE001
         errors.append(str(err))
 
