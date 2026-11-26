@@ -1,21 +1,14 @@
 {
  "source": "https://centralmosque.co.uk/prayer-times/",
  "note": "Begin times only. Asr = Asr I (first Asr time).",
- "updated": "2026-11-25T08:18:37Z",
+ "updated": "2026-11-26T04:56:29Z",
  "hijri": {
   "2026-11-23": "13 Jumādā ath-Thāniya 1448",
   "2026-11-24": "14 Jumādā ath-Thāniya 1448",
-  "2026-11-25": "15 Jumādā ath-Thāniya 1448"
+  "2026-11-25": "15 Jumādā ath-Thāniya 1448",
+  "2026-11-26": "16 Jumādā ath-Thāniya 1448"
  },
  "days": {
-  "2026-11-18": {
-   "fajr": "05:51",
-   "sunrise": "07:53",
-   "zuhr": "12:08",
-   "asr": "13:45",
-   "maghrib": "16:12",
-   "isha": "18:18"
-  },
   "2026-11-19": {
    "fajr": "05:52",
    "sunrise": "07:55",
