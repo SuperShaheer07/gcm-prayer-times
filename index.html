@@ -146,6 +146,8 @@
   var DATA_URL = "data/prayer-times.json";
   var RELOAD_DATA_EVERY_MS = 30 * 60 * 1000;
   var CACHE_KEY = "gcm-prayer-times-v1";
+  // Fridays: the Zuhr card becomes Jumu'ah, shown at this fixed time (24-hour clock).
+  var JUMUAH = { name: "Jumu'ah", time: "13:40", tile: "assets/jumuah.png" };
   var PRAYERS = [
     { key: "fajr", name: "Fajr" },
     { key: "zuhr", name: "Zuhr" },
@@ -168,7 +170,7 @@
       '<div class="time">--:--</div></div>' +
       '<img class="tile" src="assets/' + p.key + '.png" alt="' + p.name + ' in Arabic calligraphy">';
     rowsEl.appendChild(card);
-    cards[p.key] = { el: card, time: card.querySelector(".time") };
+    cards[p.key] = { el: card, time: card.querySelector(".time"), name: card.querySelector(".name"), img: card.querySelector(".tile") };
   });
 
   /* ---------- Scale the 1080x1920 design to the screen ---------- */
@@ -208,6 +210,7 @@
     d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   }
+  function isFriday(iso) { return new Date(iso + "T12:00:00Z").getUTCDay() === 5; }
   function daysBetween(a, b) {
     return Math.round((new Date(b + "T12:00:00Z") - new Date(a + "T12:00:00Z")) / 86400000);
   }
@@ -260,8 +263,18 @@
       return;
     }
 
+    var friday = isFriday(now.date);
+
     if (key !== lastRenderKey) {
       PRAYERS.forEach(function (p) { cards[p.key].time.textContent = today[p.key]; });
+      // Friday: swap the Zuhr card for Jumu'ah (it switches back at midnight, as the date changes)
+      var z = cards.zuhr, zName = friday ? JUMUAH.name : "Zuhr", zTile = friday ? JUMUAH.tile : "assets/zuhr.png";
+      if (friday) z.time.textContent = JUMUAH.time;
+      if (z.name.textContent !== zName) {
+        z.name.textContent = zName;
+        z.img.src = zTile;
+        z.img.alt = zName + " in Arabic calligraphy";
+      }
       document.getElementById("sunrise").textContent = today.sunrise;
 
       // Which prayer's time are we in?
@@ -280,8 +293,9 @@
     // Next prayer and countdown (updates every second, shows minutes)
     var next = null, nextSecs = 0;
     for (var i = 0; i < PRAYERS.length; i++) {
-      var s = toMins(today[PRAYERS[i].key]) * 60;
-      if (s > now.secs) { next = PRAYERS[i]; nextSecs = s; break; }
+      var p = PRAYERS[i], s = toMins(today[p.key]) * 60;
+      if (friday && p.key === "zuhr") { p = { key: "zuhr", name: JUMUAH.name }; s = toMins(JUMUAH.time) * 60; }
+      if (s > now.secs) { next = p; nextSecs = s; break; }
     }
     if (!next && tomorrow) { next = PRAYERS[0]; nextSecs = 86400 + toMins(tomorrow.fajr) * 60; }
     if (next) {
